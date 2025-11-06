@@ -6,6 +6,22 @@ import google.generativeai as genai
 from pdf2image import convert_from_path
 import pytesseract
 import pdfplumber
+import pickle
+
+# Must be first Streamlit command
+st.set_page_config(page_title="CV Evaluation Tool", layout="wide")
+
+# Load trained model and vectorizer on startup
+@st.cache_resource
+def load_model():
+    try:
+        model = pickle.load(open("resume_model.pkl", "rb"))
+        vectorizer = pickle.load(open("resume_vectorizer.pkl", "rb"))
+        return model, vectorizer
+    except FileNotFoundError:
+        return None, None
+
+resume_model, resume_vectorizer = load_model()
 
 # Initialize environment configuration
 load_dotenv()
@@ -55,8 +71,13 @@ def process_cv_evaluation(cv_content, role_requirements=None):
 
     
     evaluation_query = f"""
-    You are a seasoned talent acquisition specialist with technical expertise across various domains including Data Science, Analytics, DevOps, Machine Learning, AI Engineering, Full Stack Development, Big Data, Marketing Analytics, HR Management, and Software Development. Your objective is to assess the provided CV.
-    Deliver a comprehensive evaluation regarding candidate suitability for relevant positions. Identify existing competencies and recommend skill enhancements along with suitable training programs. Emphasize strengths and areas for improvement.
+    You are a professional CV assessment specialist. Analyze the provided CV and deliver:
+    
+    - Overall evaluation of candidate profile
+    - Current skills and competencies identified
+    - Areas requiring enhancement
+    - Recommended training programs and platforms
+    - Key strengths and areas for improvement
 
     CV Content:
     {cv_content}
@@ -80,10 +101,21 @@ def process_cv_evaluation(cv_content, role_requirements=None):
 
 # Streamlit application interface
 
-st.set_page_config(page_title="CV Evaluation Tool", layout="wide")
 # Application header
 st.title("AI-Powered CV Assessment Platform")
 st.write("Evaluate your CV and compare it with position requirements using Google Gemini AI.")
+
+# Model Status
+with st.sidebar:
+    st.header("🤖 Model Status")
+    
+    if resume_model and resume_vectorizer:
+        st.success("✅ Model is trained and ready!")
+        st.info("📊 Ready for CV analysis and ATS scoring")
+    else:
+        st.error("❌ No trained model found")
+        st.warning("Please run: python train_model.py")
+        st.info("Model required for job prediction and ATS scoring")
 
 left_column, right_column = st.columns(2)
 with left_column:
@@ -105,15 +137,41 @@ if document_upload:
     # Parse content from document
     cv_data = parse_cv_document("uploaded_cv_document.pdf")
 
-    if st.button("Evaluate CV"):
-        with st.spinner("Processing CV evaluation..."):
-            try:
-                # Process CV evaluation
-                evaluation_output = process_cv_evaluation(cv_data, position_specs)
-                st.success("Evaluation completed successfully!")
-                st.write(evaluation_output)
-            except Exception as error:
-                st.error(f"Evaluation process failed: {error}")
+    # AI Job Category Prediction using trained model
+    if resume_model and resume_vectorizer:
+        predicted_role = resume_model.predict(resume_vectorizer.transform([cv_data]))[0]
+        st.write(f"🧠 Predicted Job Role: **{predicted_role}**")
+        
+        col_eval, col_ats = st.columns(2)
+        
+        with col_eval:
+            if st.button("Evaluate CV"):
+                with st.spinner("Processing CV evaluation..."):
+                    try:
+                        evaluation_output = process_cv_evaluation(cv_data, position_specs)
+                        st.success("Evaluation completed successfully!")
+                        st.write(evaluation_output)
+                    except Exception as error:
+                        st.error(f"Evaluation process failed: {error}")
+        
+        with col_ats:
+            if st.button("Calculate ATS Score"):
+                confidence = max(resume_model.predict_proba(resume_vectorizer.transform([cv_data]))[0]) * 100
+                st.subheader("📊 ATS Compatibility Results")
+                st.progress(confidence / 100)
+                st.write(f"**ATS Score:** {confidence:.2f}% for `{predicted_role}`")
+                st.write("✅ **Analysis:** Based on trained ML model classification")
+    else:
+        if st.button("Evaluate CV"):
+            with st.spinner("Processing CV evaluation..."):
+                try:
+                    evaluation_output = process_cv_evaluation(cv_data, position_specs)
+                    st.success("Evaluation completed successfully!")
+                    st.write(evaluation_output)
+                except Exception as error:
+                    st.error(f"Evaluation process failed: {error}")
+        
+        st.info("💡 Run 'python train_model.py' to enable ATS scoring")
 
 #Application footer
 st.markdown("---")

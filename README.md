@@ -7,6 +7,7 @@ An intelligent CV evaluation system powered by Google Gemini AI that assists pro
 - **PDF Text Extraction**: Supports both text-based and image-based PDFs using OCR
 - **AI-Powered Analysis**: Uses Google Gemini AI for comprehensive resume evaluation
 - **Job Matching**: Compare resumes against specific job descriptions
+- **ATS Compatibility Scoring**: Benchmark resume against job-specific keywords from dataset
 - **Skills Assessment**: Identifies existing skills and suggests improvements
 - **Course Recommendations**: Suggests relevant courses and learning platforms
 - **Web Interface**: User-friendly Streamlit web application
@@ -38,6 +39,16 @@ Edit `.env` and add your Google API key:
 ```
 GOOGLE_API_KEY=your_google_api_key_here
 ```
+
+5. (Optional) Train AI model and generate keyword database:
+```bash
+# Train job classification model
+python train_model.py
+
+# Generate ATS keyword database  
+python setup_keywords.py
+```
+Note: Both require Resume.csv dataset file.
 
 ## Getting Google API Key
 
@@ -72,6 +83,8 @@ python resume_analyzer.py
 - pytesseract
 - python-dotenv
 - Pillow
+- pandas
+- scikit-learn
 
 ## Contributing
 
