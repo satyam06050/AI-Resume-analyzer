@@ -1,98 +1,134 @@
-# AI CV Assessment Platform
+# AI-Powered CV Analyzer + ATS Score
 
-An intelligent CV evaluation system powered by Google Gemini AI that assists professionals in optimizing their CVs and comparing them against position requirements.
+An intelligent resume analysis system powered by Machine Learning and Google Gemini AI that helps job seekers optimize their resumes and calculate ATS compatibility scores.
 
 ## Features
 
-- **PDF Text Extraction**: Supports both text-based and image-based PDFs using OCR
-- **AI-Powered Analysis**: Uses Google Gemini AI for comprehensive resume evaluation
-- **Job Matching**: Compare resumes against specific job descriptions
-- **ATS Compatibility Scoring**: Benchmark resume against job-specific keywords from dataset
-- **Skills Assessment**: Identifies existing skills and suggests improvements
-- **Course Recommendations**: Suggests relevant courses and learning platforms
-- **Web Interface**: User-friendly Streamlit web application
+- **ML-Based Job Classification**: Trained on 2,484 real resumes across 24 job categories
+- **Semantic ATS Scoring**: Uses sentence embeddings for intelligent resume-job matching
+- **AI-Powered Evaluation**: Google Gemini AI provides comprehensive feedback
+- **PDF Text Extraction**: Supports both text-based and scanned PDFs with OCR
+- **Web Interface**: Clean, user-friendly Streamlit application
 
 ## Installation
 
-1. Clone the repository:
+### 1. Clone the repository
 ```bash
 git clone https://github.com/yourusername/resume-analyzer.git
 cd resume-analyzer
 ```
 
-2. Create a virtual environment:
+### 2. Create virtual environment
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 ```
 
-3. Install dependencies:
+### 3. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Set up environment variables:
+### 4. Install Tesseract OCR
+- **Windows**: Download from [GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
+- **Mac**: `brew install tesseract`
+- **Linux**: `sudo apt-get install tesseract-ocr`
+
+### 5. Configure API Key
 ```bash
 cp .env.example .env
 ```
 Edit `.env` and add your Google API key:
 ```
-GOOGLE_API_KEY=your_google_api_key_here
+GOOGLE_API_KEY=your_api_key_here
 ```
 
-5. (Optional) Train AI model and generate keyword database:
+Get your API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+
+### 6. Train the Model
 ```bash
-# Train job classification model
 python train_model.py
-
-# Generate ATS keyword database  
-python setup_keywords.py
 ```
-Note: Both require Resume.csv dataset file.
-
-## Getting Google API Key
-
-1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
-2. Create a new API key
-3. Copy the key to your `.env` file
+Note: Requires `Resume.csv` dataset (not included - use your own dataset)
 
 ## Usage
 
-### Web Application
+### Run the Web Application
 ```bash
 streamlit run app.py
 ```
 
-### Command Line
-```bash
-python resume_analyzer.py
+### How to Use
+1. Upload your resume (PDF format)
+2. Paste the job description
+3. Click "Get AI Evaluation" for detailed feedback
+4. Click "Calculate ATS Score" for compatibility score
+
+## How It Works
+
+### ML-Based ATS Scoring
+- **Semantic Similarity (70%)**: Compares resume and job description using sentence embeddings
+- **Category Match (30%)**: Bonus if predicted job categories align
+- **Result**: Accurate 0-100% compatibility score
+
+### Job Classification
+- Trained LinearSVC model on 2,484 resumes
+- 24 job categories (IT, Finance, Healthcare, etc.)
+- Uses SentenceTransformer embeddings (all-MiniLM-L6-v2)
+
+## Project Structure
+```
+resume_analyzer/
+├── app.py                      # Main Streamlit application
+├── train_model.py              # Model training script
+├── requirements.txt            # Python dependencies
+├── .env.example               # Environment template
+├── .gitignore                 # Git ignore rules
+└── README.md                  # Documentation
 ```
 
 ## Requirements
 
 - Python 3.7+
-- Tesseract OCR (for image-based PDFs)
-- Google API key for Gemini AI
+- Tesseract OCR
+- Google Gemini API key
+- Resume dataset (for training)
 
-## Dependencies
+## Technologies Used
 
-- streamlit
-- google-generativeai
-- pdfplumber
-- pdf2image
-- pytesseract
-- python-dotenv
-- Pillow
-- pandas
-- scikit-learn
+- **ML Framework**: scikit-learn (LinearSVC)
+- **Embeddings**: SentenceTransformers
+- **AI**: Google Gemini 2.0 Flash
+- **Web Framework**: Streamlit
+- **PDF Processing**: pdfplumber, pdf2image, pytesseract
+
+## Dataset
+
+The model is trained on a resume dataset with:
+- 2,484 resumes
+- 24 job categories
+- Columns: ID, Resume_str, Resume_html, Category
+
+Note: Dataset not included in repository. Use your own or find publicly available resume datasets.
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+2. Create feature branch (`git checkout -b feature/improvement`)
+3. Commit changes (`git commit -am 'Add feature'`)
+4. Push to branch (`git push origin feature/improvement`)
+5. Create Pull Request
 
 ## License
 
-This project is open source and available under the MIT License.
+MIT License - see LICENSE file for details
+
+## Acknowledgments
+
+- Google Gemini AI for evaluation capabilities
+- SentenceTransformers for semantic embeddings
+- Streamlit for the web framework
+
+## Support
+
+For issues or questions, please open an issue on GitHub.

@@ -26,8 +26,19 @@ Thumbs.db
 
 # Uploaded files
 uploaded_resume.pdf
-Resume.pdf
+temp_resume.pdf
+temp.pdf
 *.pdf
+
+# Model files (too large for git)
+resume_classifier.pkl
+resume_model.pkl
+resume_vectorizer.pkl
+resume_embedding_model/
+
+# Dataset (sensitive/large)
+Resume.csv
+*.csv
 
 # Logs
 *.log
