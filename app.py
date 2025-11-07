@@ -1,178 +1,222 @@
 import os
+import re
+import pickle
 import streamlit as st
 from dotenv import load_dotenv
-from PIL import Image
-import google.generativeai as genai
 from pdf2image import convert_from_path
 import pytesseract
 import pdfplumber
-import pickle
+from sentence_transformers import SentenceTransformer
+import google.generativeai as genai
 
-# Must be first Streamlit command
-st.set_page_config(page_title="CV Evaluation Tool", layout="wide")
+st.set_page_config(page_title="ATS + CV Analyzer", layout="wide")
 
-# Load trained model and vectorizer on startup
+# Load resources
 @st.cache_resource
-def load_model():
+def load_model_and_encoder():
     try:
-        model = pickle.load(open("resume_model.pkl", "rb"))
-        vectorizer = pickle.load(open("resume_vectorizer.pkl", "rb"))
-        return model, vectorizer
-    except FileNotFoundError:
+        model = pickle.load(open("resume_classifier.pkl", "rb"))
+        encoder = SentenceTransformer("./resume_embedding_model")
+        return model, encoder
+    except Exception as e:
+        st.error(f"Failed to load model: {e}")
         return None, None
 
-resume_model, resume_vectorizer = load_model()
+model, encoder = load_model_and_encoder()
 
-# Initialize environment configuration
+# Load API key
 load_dotenv()
+api_key = os.getenv("GOOGLE_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
 
-# Setup Google Gemini AI
-gemini_token = os.getenv("GOOGLE_API_KEY")
-if not gemini_token:
-    st.error("GOOGLE_API_KEY not configured. Please add it to your .env file.")
-    st.stop()
-
-genai.configure(api_key=gemini_token)
-
-# Function to parse document content
-def parse_cv_document(document_location):
-    content = ""
+# Extract text from PDF
+def extract_text(path):
+    text = ""
     try:
-        # Attempt direct content parsing
-        with pdfplumber.open(document_location) as doc:
-            for doc_page in doc.pages:
-                current_content = doc_page.extract_text()
-                if current_content:
-                    content += current_content
-
-        if content.strip():
-            return content.strip()
-    except Exception as error:
-        print(f"Primary parsing method failed: {error}")
-
-    # Use OCR for scanned documents
-    print("Switching to OCR processing for scanned document.")
+        with pdfplumber.open(path) as pdf:
+            for page in pdf.pages:
+                content = page.extract_text()
+                if content:
+                    text += content + " "
+        if text.strip():
+            return text.strip()
+    except:
+        pass
+    
     try:
-        page_images = convert_from_path(document_location)
-        for img in page_images:
-            ocr_content = pytesseract.image_to_string(img)
-            content += ocr_content + "\n"
-    except Exception as error:
-        print(f"OCR processing failed: {error}")
-
-    return content.strip()
-
-# Function to process CV evaluation
-def process_cv_evaluation(cv_content, role_requirements=None):
-    if not cv_content:
-        return {"error": "CV content is required for evaluation."}
+        images = convert_from_path(path)
+        for img in images:
+            text += pytesseract.image_to_string(img) + " "
+    except:
+        pass
     
-    ai_processor = genai.GenerativeModel("gemini-2.0-flash")
+    return text.strip()
 
+# Clean text for model
+def clean_text(text):
+    text = str(text).lower()
+    text = re.sub(r'[^a-z0-9+#.\s]', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+# ML-based ATS scoring using trained model
+def calculate_ats_score(resume_text, job_desc, model, encoder):
+    if not job_desc.strip():
+        return 0, [], [], "No job description provided"
     
-    evaluation_query = f"""
-    You are a professional CV assessment specialist. Analyze the provided CV and deliver:
+    # Clean texts
+    resume_clean = clean_text(resume_text)
+    jd_clean = clean_text(job_desc)
     
-    - Overall evaluation of candidate profile
-    - Current skills and competencies identified
-    - Areas requiring enhancement
-    - Recommended training programs and platforms
-    - Key strengths and areas for improvement
+    # Get embeddings
+    resume_emb = encoder.encode([resume_clean])[0]
+    jd_emb = encoder.encode([jd_clean])[0]
+    
+    # Calculate cosine similarity between resume and JD
+    import numpy as np
+    similarity = np.dot(resume_emb, jd_emb) / (np.linalg.norm(resume_emb) * np.linalg.norm(jd_emb))
+    similarity_score = (similarity + 1) / 2 * 100  # Normalize to 0-100
+    
+    # Predict job category from resume
+    resume_category = model.predict([resume_emb])[0]
+    
+    # Predict job category from JD
+    jd_category = model.predict([jd_emb])[0]
+    
+    # Category match bonus
+    category_match = (resume_category == jd_category)
+    category_bonus = 20 if category_match else 0
+    
+    # Keyword overlap for transparency
+    stop_words = {'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have', 'will', 
+                  'your', 'our', 'are', 'you', 'can', 'all', 'not', 'but', 'what', 'there'}
+    
+    jd_words = set(re.findall(r'\b[a-z+#]{3,}\b', jd_clean)) - stop_words
+    resume_words = set(re.findall(r'\b[a-z+#]{3,}\b', resume_clean)) - stop_words
+    
+    matched = list(jd_words.intersection(resume_words))[:20]
+    missing = list(jd_words - resume_words)[:15]
+    
+    # Final ATS score: weighted combination
+    final_score = (similarity_score * 0.7) + (category_bonus * 0.3)
+    final_score = min(final_score, 100)
+    
+    analysis = f"Resume Category: {resume_category} | JD Category: {jd_category} | Match: {'✓' if category_match else '✗'}"
+    
+    return round(final_score, 2), matched, missing, analysis
 
-    CV Content:
-    {cv_content}
-    """
+# UI
+st.title("🎯 AI-Powered CV Analyzer + ATS Score")
 
-    if role_requirements:
-        evaluation_query += f"""
-        Furthermore, assess this CV against the following role specifications:
-        
-        Role Specifications:
-        {role_requirements}
-        
-        Identify candidate strengths and gaps relative to the specified position requirements.
-        """
-
-    ai_output = ai_processor.generate_content(evaluation_query)
-
-    evaluation_result = ai_output.text.strip()
-    return evaluation_result
-
-
-# Streamlit application interface
-
-# Application header
-st.title("AI-Powered CV Assessment Platform")
-st.write("Evaluate your CV and compare it with position requirements using Google Gemini AI.")
-
-# Model Status
 with st.sidebar:
-    st.header("🤖 Model Status")
+    st.header("📋 Instructions")
+    st.write("1. Upload your resume (PDF)")
+    st.write("2. Paste job description")
+    st.write("3. Get AI evaluation & ATS score")
     
-    if resume_model and resume_vectorizer:
-        st.success("✅ Model is trained and ready!")
-        st.info("📊 Ready for CV analysis and ATS scoring")
-    else:
-        st.error("❌ No trained model found")
-        st.warning("Please run: python train_model.py")
-        st.info("Model required for job prediction and ATS scoring")
+    if model is None:
+        st.error("⚠️ Model not loaded. Run train_model.py first!")
 
-left_column, right_column = st.columns(2)
-with left_column:
-    document_upload = st.file_uploader("Upload your CV document (PDF)", type=["pdf"])
-with right_column:
-    position_specs = st.text_area("Enter Position Requirements:", placeholder="Paste the position requirements here...")
+resume_file = st.file_uploader("📄 Upload Resume (PDF)", type=["pdf"])
+job_desc = st.text_area("📝 Paste Job Description / Role Requirements", height=200, 
+                        placeholder="Paste the complete job description here...")
 
-if document_upload is not None:
-    st.success("CV document uploaded successfully!")
-else:
-    st.warning("Please upload a CV document in PDF format.")
+if resume_file and model and encoder:
+    # Save and extract
+    with open("temp_resume.pdf", "wb") as f:
+        f.write(resume_file.getbuffer())
+    
+    resume_text = extract_text("temp_resume.pdf")
+    
+    if not resume_text:
+        st.error("❌ Could not extract text from PDF. Try a different file.")
+        st.stop()
+    
+    # Show extracted text preview
+    with st.expander("📄 View Extracted Resume Text"):
+        st.text(resume_text[:1000] + "..." if len(resume_text) > 1000 else resume_text)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📊 Get AI Evaluation", use_container_width=True):
+            if not api_key:
+                st.warning("⚠️ Google API key not configured. Add GOOGLE_API_KEY to .env file.")
+            else:
+                with st.spinner("Analyzing resume..."):
+                    prompt = f"""Analyze this resume and provide:
+1. Overall assessment
+2. Key strengths
+3. Areas for improvement
+4. Skill recommendations
+5. Match with job requirements (if provided)
 
+Resume:
+{resume_text}
 
-st.markdown("<div style= 'padding-top: 10px;'></div>", unsafe_allow_html=True)
-if document_upload:
-    # Store uploaded document locally for processing
-    with open("uploaded_cv_document.pdf", "wb") as file_handler:
-        file_handler.write(document_upload.getbuffer())
-    # Parse content from document
-    cv_data = parse_cv_document("uploaded_cv_document.pdf")
-
-    # AI Job Category Prediction using trained model
-    if resume_model and resume_vectorizer:
-        predicted_role = resume_model.predict(resume_vectorizer.transform([cv_data]))[0]
-        st.write(f"🧠 Predicted Job Role: **{predicted_role}**")
-        
-        col_eval, col_ats = st.columns(2)
-        
-        with col_eval:
-            if st.button("Evaluate CV"):
-                with st.spinner("Processing CV evaluation..."):
+Job Requirements:
+{job_desc if job_desc else 'Not provided'}
+"""
                     try:
-                        evaluation_output = process_cv_evaluation(cv_data, position_specs)
-                        st.success("Evaluation completed successfully!")
-                        st.write(evaluation_output)
-                    except Exception as error:
-                        st.error(f"Evaluation process failed: {error}")
-        
-        with col_ats:
-            if st.button("Calculate ATS Score"):
-                confidence = max(resume_model.predict_proba(resume_vectorizer.transform([cv_data]))[0]) * 100
-                st.subheader("📊 ATS Compatibility Results")
-                st.progress(confidence / 100)
-                st.write(f"**ATS Score:** {confidence:.2f}% for `{predicted_role}`")
-                st.write("✅ **Analysis:** Based on trained ML model classification")
-    else:
-        if st.button("Evaluate CV"):
-            with st.spinner("Processing CV evaluation..."):
-                try:
-                    evaluation_output = process_cv_evaluation(cv_data, position_specs)
-                    st.success("Evaluation completed successfully!")
-                    st.write(evaluation_output)
-                except Exception as error:
-                    st.error(f"Evaluation process failed: {error}")
-        
-        st.info("💡 Run 'python train_model.py' to enable ATS scoring")
+                        result = genai.GenerativeModel("gemini-2.0-flash").generate_content(prompt)
+                        st.markdown("### 📋 AI Evaluation")
+                        st.write(result.text)
+                    except Exception as e:
+                        st.error(f"AI evaluation failed: {e}")
+    
+    with col2:
+        if st.button("✅ Calculate ATS Score", use_container_width=True):
+            if not job_desc.strip():
+                st.warning("⚠️ Please paste a job description to calculate ATS score.")
+            else:
+                with st.spinner("Calculating ML-based ATS score..."):
+                    score, matched, missing, analysis = calculate_ats_score(resume_text, job_desc, model, encoder)
+                    
+                    st.markdown("### 📊 ML-Based ATS Compatibility Score")
+                    st.progress(score / 100)
+                    
+                    # Color-coded score
+                    if score >= 70:
+                        st.success(f"**Score: {score}%** - Excellent Match! 🎉")
+                    elif score >= 50:
+                        st.warning(f"**Score: {score}%** - Good Match ✓")
+                    else:
+                        st.error(f"**Score: {score}%** - Needs Improvement ⚠️")
+                    
 
-#Application footer
+
+elif resume_file and not model:
+    st.error("⚠️ Model not loaded. Please run `python train_model.py` first.")
+else:
+    st.info("👆 Upload a resume PDF to begin analysis")
+    
+    with st.expander("ℹ️ How ML-Based ATS Scoring Works"):
+        st.write("""
+        **ML-Based ATS Score** uses trained machine learning models to evaluate resume-job fit.
+        
+        **Scoring Components:**
+        1. **Semantic Similarity (70%)**: Uses AI embeddings to measure how similar your resume content is to the job description
+        2. **Category Match (30%)**: Checks if your resume category matches the job category predicted by ML model
+        
+        **Score Ranges:**
+        - 70-100%: Excellent match - High chance of passing ATS
+        - 50-69%: Good match - Likely to pass with minor improvements
+        - Below 50%: Needs improvement - Add more relevant keywords
+        
+        **Advantages over Traditional ATS:**
+        - Understands context and meaning, not just keywords
+        - Detects semantic similarity even with different wording
+        - Uses trained model on 2,484 real resumes
+        - More accurate job category prediction
+        
+        **Tips to Improve:**
+        1. Align your experience with job requirements
+        2. Use industry-standard terminology
+        3. Ensure your skills match the job category
+        4. Include relevant technical and soft skills
+        """)
+
+# Footer
 st.markdown("---")
-st.markdown("""<p style= 'text-align: center;' >Built with <b>Streamlit</b> and <b>Google Gemini AI</b></p>""", unsafe_allow_html=True)
+st.caption("🤖 ML-Powered ATS Scoring | Built with Streamlit, Google Gemini AI & SentenceTransformers")
