@@ -129,6 +129,3 @@ MIT License - see LICENSE file for details
 - SentenceTransformers for semantic embeddings
 - Streamlit for the web framework
 
-## Support
-
-For issues or questions, please open an issue on GitHub.
